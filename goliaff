@@ -110,54 +110,62 @@ class SystemConfigurator:
         
         return True
     
-    def load_config_recursive(self, config: Dict[str, Any], base_path: str = '') -> Dict[str, Any]:
+    def load_config_recursive(self, config: Any, base_path: str = '') -> Any:
         """Recursively loads configuration with @include processing"""
-        result = {}
+        # Если это строка с @include
+        if isinstance(config, str) and config.startswith('@include:'):
+            include_file = config[len('@include:'):]
+            
+            if base_path and not include_file.startswith('/'):
+                include_file = os.path.join(base_path, include_file)
+            
+            if not os.path.exists(include_file):
+                self.log_warning(f"Include file not found: {include_file}")
+                return config
+            
+            try:
+                with open(include_file, 'r', encoding='utf-8') as f:
+                    included_config = json.load(f)
+            except (json.JSONDecodeError, IOError) as e:
+                self.log_warning(f"Invalid JSON or unable to read file: {include_file} - {e}")
+                return config
+            
+            # Рекурсивно обрабатываем загруженный конфиг
+            return self.load_config_recursive(included_config, os.path.dirname(include_file))
         
-        for key, value in config.items():
-            if isinstance(value, str) and value.startswith('@include:'):
-                include_file = value[len('@include:'):]
-                
-                if base_path and not include_file.startswith('/'):
-                    include_file = os.path.join(base_path, include_file)
-                
-                if not os.path.exists(include_file):
-                    self.log_warning(f"Include file not found: {include_file}")
-                    continue
-                
-                try:
-                    with open(include_file, 'r', encoding='utf-8') as f:
-                        included_config = json.load(f)
-                except (json.JSONDecodeError, IOError) as e:
-                    self.log_warning(f"Invalid JSON or unable to read file: {include_file} - {e}")
-                    continue
-                
-                result[key] = self.load_config_recursive(
-                    included_config, 
-                    os.path.dirname(include_file)
-                )
-            elif isinstance(value, dict):
+        # Если это словарь
+        elif isinstance(config, dict):
+            result = {}
+            for key, value in config.items():
                 result[key] = self.load_config_recursive(value, base_path)
-            else:
-                result[key] = value
+            return result
         
-        return result
-    
-    def load_config(self) -> bool:
-        """Loads configuration"""
-        try:
-            with open(self.config_path, 'r', encoding='utf-8') as f:
-                main_config = json.load(f)
-        except (json.JSONDecodeError, IOError) as e:
-            self.log_error(f"Invalid JSON or unable to read {self.config_path}: {e}")
-            self.log_info(f"Current directory: {os.getcwd()}")
-            return False
+        # Если это список
+        elif isinstance(config, list):
+            result = []
+            for item in config:
+                result.append(self.load_config_recursive(item, base_path))
+            return result
         
-        self.config = self.load_config_recursive(
-            main_config, 
-            os.path.dirname(self.config_path)
-        )
-        return True
+        # Любой другой тип данных (строка, число, bool, None)
+        else:
+            return config
+        
+        def load_config(self) -> bool:
+            """Loads configuration"""
+            try:
+                with open(self.config_path, 'r', encoding='utf-8') as f:
+                    main_config = json.load(f)
+            except (json.JSONDecodeError, IOError) as e:
+                self.log_error(f"Invalid JSON or unable to read {self.config_path}: {e}")
+                self.log_info(f"Current directory: {os.getcwd()}")
+                return False
+            
+            self.config = self.load_config_recursive(
+                main_config, 
+                os.path.dirname(self.config_path)
+            )
+            return True
     
     def get_current_distro_config(self) -> Optional[Dict[str, Any]]:
         """Returns current distribution configuration"""
