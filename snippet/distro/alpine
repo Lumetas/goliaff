@@ -43,6 +43,17 @@
 			"add": "sudo addgroup %user% %group%",
 			"check": "groups %user% | grep -q '\\b%group%\\b' && echo 1"
 		}
+	},
+	"groups": {
+		"exists": "getent group %group% > /dev/null 2>&1 && echo 1",
+		"create": "sudo addgroup %group%",
+		"delete": "sudo delgroup %group%",
+		"list": "getent group",
+		"members": {
+			"list": "getent group %group% | cut -d: -f4",
+			"add": "sudo adduser %user% %group%",
+			"remove": "sudo deluser %user% %group%"
+		}
 	}
 }
 

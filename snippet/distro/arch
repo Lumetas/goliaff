@@ -62,6 +62,17 @@
 			"check": "groups %user% | grep -q '\\b%group%\\b' && echo 1",
 			"list": "groups %user% | tr ' ' '\\n' | tail -n +2"
 		}
+	},
+	"groups": {
+		"exists": "getent group %group% > /dev/null 2>&1 && echo 1",
+		"create": "sudo groupadd %group%",
+		"delete": "sudo groupdel %group%",
+		"list": "getent group",
+		"members": {
+			"list": "getent group %group% | cut -d: -f4",
+			"add": "sudo gpasswd -a %user% %group%",
+			"remove": "sudo gpasswd -d %user% %group%"
+		}
 	}
 }
 
