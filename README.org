@@ -17,7 +17,7 @@
   #+BEGIN_SRC bash
   # Clone the repository
   sudo git clone https://github.com/lumetas/goliaff.git /etc/goliaff
-  sudo chmod +x /etc/goliaff
+  sudo chmod +x /etc/goliaff/goliaff
   sudo cp /etc/goliaff/goliaff /bin/goliaff
   #+END_SRC
 
