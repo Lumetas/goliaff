@@ -154,29 +154,29 @@ class SystemConfigurator:
         else:
             return config
         
-        def load_config(self) -> bool:
-            """Loads configuration"""
-            try:
-                with open(self.config_path, 'r', encoding='utf-8') as f:
-                    main_config = json.load(f)
-            except (json.JSONDecodeError, IOError) as e:
-                self.log_error(f"Invalid JSON or unable to read {self.config_path}: {e}")
-                self.log_info(f"Current directory: {os.getcwd()}")
-                return False
-            
-            # Обрабатываем рекурсивно
-            processed_config = self.load_config_recursive(
-                main_config, 
-                os.path.dirname(self.config_path)
-            )
-            
-            # Убедимся, что обработанный конфиг - это словарь
-            if not isinstance(processed_config, dict):
-                self.log_error(f"Configuration root must be a JSON object (dictionary), got {type(processed_config).__name__}")
-                return False
-            
-            self.config = processed_config
-            return True
+    def load_config(self) -> bool:
+        """Loads configuration"""
+        try:
+            with open(self.config_path, 'r', encoding='utf-8') as f:
+                main_config = json.load(f)
+        except (json.JSONDecodeError, IOError) as e:
+            self.log_error(f"Invalid JSON or unable to read {self.config_path}: {e}")
+            self.log_info(f"Current directory: {os.getcwd()}")
+            return False
+        
+        # Обрабатываем рекурсивно
+        processed_config = self.load_config_recursive(
+            main_config, 
+            os.path.dirname(self.config_path)
+        )
+        
+        # Убедимся, что обработанный конфиг - это словарь
+        if not isinstance(processed_config, dict):
+            self.log_error(f"Configuration root must be a JSON object (dictionary), got {type(processed_config).__name__}")
+            return False
+        
+        self.config = processed_config
+        return True
     
     def get_current_distro_config(self) -> Optional[Dict[str, Any]]:
         """Returns current distribution configuration"""
