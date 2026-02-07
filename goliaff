@@ -28,7 +28,8 @@ class Operation(Enum):
     CLONE = "Clone"
     DOWNLOAD = "Download"
     EXTRACT = "Extract"
-    BUILD = "Build"
+    BUILD = "Build",
+    PRECOMMANDS = "Pre-commands"
 
 
 @dataclass
@@ -219,6 +220,27 @@ class SystemConfigurator:
                 self._install_package(pkg_name, distro_config)
             elif not should_be_installed and is_installed:
                 self._remove_package(pkg_name, distro_config)
+
+
+    def _pre_comands(self):
+        """Executes pre-commands"""
+        if 'pre-commands' not in self.config:
+            return
+        
+        self.log_info("Executing pre-commands")
+        pre_cmds = self.config.get('pre-commands', {})
+        
+        for cmd in pre_cmds:
+            self.add_dry_run_op(Operation.PRECOMMANDS, f"Pre-command", cmd)
+            if self.dry_run:
+                continue
+            
+            self.log_info(f"Executing pre-command: {cmd}")
+            returncode, stdout, stderr = self.run_command(cmd)
+            
+            if returncode != 0:
+                self.log_error(f"Pre-command failed: {stderr}")     
+        
     
     def _install_package(self, pkg_name: str, distro_config: Dict[str, Any]):
         """Installs package"""
@@ -531,10 +553,10 @@ class SystemConfigurator:
             return
         
         # Change to the directory if path exists
-        original_cwd = os.getcwd()
-        if os.path.exists(path):
-            os.chdir(path)
-            self.log_info(f"Changed to directory: {path}")
+        # original_cwd = os.getcwd()
+        # if os.path.exists(path):
+        #     os.chdir(path)
+        #     self.log_info(f"Changed to directory: {path}")
         
         self.log_info(f"Running build commands for {path}")
         
@@ -1268,6 +1290,7 @@ class SystemConfigurator:
             print("The following changes will be executed:")
             print("="*60 + "\n")
         
+        self._pre_comands()
         self.manage_packages()
         self.manage_services()
         self.manage_system()
