@@ -5,6 +5,9 @@ import sys
 import json
 import subprocess
 import shlex
+import tarfile
+import urllib.request
+import tempfile
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Union
 from enum import Enum
@@ -23,6 +26,9 @@ class Operation(Enum):
     MODIFY = "Modify"
     SET = "Set"
     CLONE = "Clone"
+    DOWNLOAD = "Download"
+    EXTRACT = "Extract"
+    BUILD = "Build"
 
 
 @dataclass
@@ -83,6 +89,25 @@ class SystemConfigurator:
             return result.returncode, result.stdout.strip(), result.stderr.strip()
         except Exception as e:
             return -1, "", str(e)
+    
+    def run_commands(self, commands: List[str]) -> bool:
+        """Executes multiple shell commands joined with ;"""
+        if not commands:
+            return True
+        
+        if self.dry_run:
+            for cmd in commands:
+                self.add_dry_run_op(Operation.BUILD, f"Build command", cmd)
+            return True
+        
+        full_cmd = " ; ".join(commands)
+        returncode, stdout, stderr = self.run_command(full_cmd)
+        
+        if returncode != 0:
+            self.log_error(f"Build failed: {stderr}")
+            return False
+        
+        return True
     
     def load_config_recursive(self, config: Dict[str, Any], base_path: str = '') -> Dict[str, Any]:
         """Recursively loads configuration with @include processing"""
@@ -456,14 +481,30 @@ class SystemConfigurator:
         self.log_info("Managing extra packages")
         extra_pkgs = self.config.get('extraPkgs', {})
         
-        for path, url in extra_pkgs.items():
+        for path, config in extra_pkgs.items():
             expanded_path = self.expand_path(path)
             
-            if not os.path.exists(expanded_path):
-                self._clone_extra_package(url, expanded_path)
+            # If config is a string, treat it as git URL
+            if isinstance(config, str):
+                if not os.path.exists(expanded_path):
+                    self._clone_git_repo(config, expanded_path)
+            # If config is a dict, handle based on type
+            elif isinstance(config, dict):
+                pkg_type = config.get('type', 'git')
+                
+                if pkg_type == 'git':
+                    if not os.path.exists(expanded_path):
+                        self._clone_git_repo(config.get('url'), expanded_path)
+                        if 'build' in config:
+                            self._run_build_commands(config['build'], expanded_path)
+                elif pkg_type == 'file':
+                    if not os.path.exists(expanded_path):
+                        self._download_and_extract_file(config, expanded_path)
+                else:
+                    self.log_warning(f"Unknown package type: {pkg_type} for {path}")
     
-    def _clone_extra_package(self, url: str, path: str):
-        """Clones extra package"""
+    def _clone_git_repo(self, url: str, path: str):
+        """Clones git repository"""
         dir_path = os.path.dirname(path)
         if dir_path and not os.path.exists(dir_path):
             try:
@@ -484,6 +525,109 @@ class SystemConfigurator:
         if returncode != 0:
             self.log_error(f"Failed to clone {url}: {stderr}")
     
+    def _run_build_commands(self, build_commands: List[str], path: str):
+        """Runs build commands"""
+        if not build_commands:
+            return
+        
+        # Change to the directory if path exists
+        original_cwd = os.getcwd()
+        if os.path.exists(path):
+            os.chdir(path)
+            self.log_info(f"Changed to directory: {path}")
+        
+        self.log_info(f"Running build commands for {path}")
+        
+        # Process build commands
+        processed_commands = []
+        for cmd in build_commands:
+            # Replace ~/ with home directory
+            if '~/' in cmd:
+                cmd = cmd.replace('~/', os.path.expanduser('~') + '/')
+            processed_commands.append(cmd)
+        
+        # Run the commands
+        success = self.run_commands(processed_commands)
+        
+        # Change back to original directory
+        os.chdir(original_cwd)
+        
+        if success:
+            self.log_change(f"Build completed for {path}")
+        else:
+            self.log_error(f"Build failed for {path}")
+    
+    def _download_and_extract_file(self, config: Dict[str, Any], path: str):
+        """Downloads and extracts file"""
+        url = config.get('url')
+        if not url:
+            self.log_error(f"No URL specified for file download")
+            return
+        
+        # Create directory
+        dir_path = os.path.dirname(path)
+        if dir_path and not os.path.exists(dir_path):
+            try:
+                os.makedirs(dir_path, 0o755, exist_ok=True)
+            except OSError as e:
+                self.log_error(f"Failed to create directory {dir_path}: {e}")
+                return
+        
+        self.log_info(f"Downloading: {url}")
+        
+        if self.dry_run:
+            self.add_dry_run_op(Operation.DOWNLOAD, f"File: {url} → {path}")
+            if 'build' in config:
+                for cmd in config['build']:
+                    self.add_dry_run_op(Operation.BUILD, f"Build command", cmd)
+            return
+        
+        # Download file
+        try:
+            with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.basename(url)) as tmp_file:
+                tmp_path = tmp_file.name
+                
+                with urllib.request.urlopen(url) as response:
+                    tmp_file.write(response.read())
+                
+                self.log_change(f"Downloaded: {url}")
+                
+                # Extract if it's a tar file
+                if url.endswith('.tar.gz') or url.endswith('.tgz'):
+                    self._extract_tar_file(tmp_path, path, config)
+                else:
+                    # Move file to destination
+                    os.rename(tmp_path, path)
+                    self.log_change(f"Moved to: {path}")
+                
+                # Run build commands if any
+                if 'build' in config:
+                    self._run_build_commands(config['build'], path)
+                
+        except Exception as e:
+            self.log_error(f"Failed to download {url}: {e}")
+            if os.path.exists(tmp_path):
+                os.unlink(tmp_path)
+    
+    def _extract_tar_file(self, tar_path: str, dest_path: str, config: Dict[str, Any]):
+        """Extracts tar file"""
+        self.log_info(f"Extracting: {tar_path}")
+        
+        try:
+            with tarfile.open(tar_path, 'r:gz') as tar:
+                # Create destination directory
+                os.makedirs(dest_path, exist_ok=True)
+                
+                # Extract all files
+                tar.extractall(path=dest_path)
+                self.log_change(f"Extracted to: {dest_path}")
+            
+            # Remove temporary file
+            os.unlink(tar_path)
+            
+        except Exception as e:
+            self.log_error(f"Failed to extract {tar_path}: {e}")
+    
     def uninstall_extra_packages(self):
         """Removes extra packages"""
         if 'extraPkgs' not in self.config:
@@ -492,7 +636,7 @@ class SystemConfigurator:
         self.log_info("Removing extra packages")
         extra_pkgs = self.config.get('extraPkgs', {})
         
-        for path, url in extra_pkgs.items():
+        for path, config in extra_pkgs.items():
             expanded_path = self.expand_path(path)
             
             if os.path.exists(expanded_path):
@@ -718,8 +862,20 @@ class SystemConfigurator:
         
         # Add user to groups
         groups = user_config.get('groups', [])
-        for group in groups:
-            self._add_user_to_group(user_name, group, users_config)
+        if groups:
+            # Use with_groups if available
+            with_groups_cmd = create_config.get('with_groups')
+            if with_groups_cmd:
+                groups_str = ','.join(groups)
+                with_groups_cmd = with_groups_cmd.replace('%user%', user_name).replace('%groups%', groups_str)
+                self.log_info(f"Adding user to groups: {groups_str}")
+                returncode, stdout, stderr = self.run_command(with_groups_cmd)
+                if returncode != 0:
+                    self.log_warning(f"Failed to add user to groups with single command: {stderr}")
+            else:
+                # Add groups one by one
+                for group in groups:
+                    self._add_user_to_group(user_name, group, users_config)
         
         # Unlock user if needed
         if not user_config.get('lock', False):
@@ -937,6 +1093,104 @@ class SystemConfigurator:
         if returncode != 0:
             self.log_error(f"Failed to unlock user {user_name}: {stderr}")
     
+    # ========== Group Management ==========
+    
+    def manage_groups(self):
+        """Manages groups based on declarative configuration"""
+        if 'groups' not in self.config:
+            self.log_info("Groups not defined in config")
+            return
+        
+        distro_config = self.get_current_distro_config()
+        if not distro_config:
+            return
+        
+        groups_config = distro_config.get('groups', {})
+        if not groups_config:
+            self.log_warning("Group configuration not found for distribution")
+            return
+        
+        self.log_info("Managing groups")
+        config_groups = self.config.get('groups', [])
+        
+        for group_config in config_groups:
+            if not isinstance(group_config, dict):
+                continue
+            
+            group_name = group_config.get('name')
+            if not group_name:
+                continue
+            
+            active = group_config.get('active', True)
+            
+            if active:
+                self._create_or_ensure_group(group_name, groups_config)
+            else:
+                self._delete_group(group_name, groups_config)
+    
+    def _check_group_exists(self, group_name: str, groups_config: Dict[str, Any]) -> bool:
+        """Checks if group exists"""
+        exists_cmd = groups_config.get('exists')
+        if not exists_cmd:
+            return False
+        
+        exists_cmd = exists_cmd.replace('%group%', group_name)
+        returncode, stdout, stderr = self.run_command(exists_cmd)
+        
+        return returncode == 0 and stdout.strip() == "1"
+    
+    def _create_or_ensure_group(self, group_name: str, groups_config: Dict[str, Any]):
+        """Creates group if it doesn't exist"""
+        if self._check_group_exists(group_name, groups_config):
+            return
+        
+        create_cmd = groups_config.get('create')
+        if not create_cmd:
+            self.log_error(f"Group creation command not defined")
+            return
+        
+        create_cmd = create_cmd.replace('%group%', group_name)
+        self.add_dry_run_op(
+            Operation.CREATE,
+            f"Group: {group_name}",
+            create_cmd
+        )
+        
+        if self.dry_run:
+            return
+        
+        self.log_change(f"Creating group: {group_name}")
+        returncode, stdout, stderr = self.run_command(create_cmd)
+        
+        if returncode != 0:
+            self.log_error(f"Failed to create group {group_name}: {stderr}")
+    
+    def _delete_group(self, group_name: str, groups_config: Dict[str, Any]):
+        """Deletes group"""
+        if not self._check_group_exists(group_name, groups_config):
+            return
+        
+        delete_cmd = groups_config.get('delete')
+        if not delete_cmd:
+            self.log_error(f"Group deletion command not defined")
+            return
+        
+        delete_cmd = delete_cmd.replace('%group%', group_name)
+        self.add_dry_run_op(
+            Operation.DELETE,
+            f"Group: {group_name}",
+            delete_cmd
+        )
+        
+        if self.dry_run:
+            return
+        
+        self.log_change(f"Deleting group: {group_name}")
+        returncode, stdout, stderr = self.run_command(delete_cmd)
+        
+        if returncode != 0:
+            self.log_error(f"Failed to delete group {group_name}: {stderr}")
+    
     # ========== System Settings Management ==========
     
     def manage_system(self):
@@ -1017,6 +1271,7 @@ class SystemConfigurator:
         self.manage_packages()
         self.manage_services()
         self.manage_system()
+        self.manage_groups()  # Добавил управление группами
         self.manage_users()
         self.manage_extra_packages()
         self.manage_stow()
@@ -1106,7 +1361,9 @@ def show_help():
   goliaff packages        - Manage only packages
   goliaff services        - Manage only services
   goliaff system          - Manage only system settings
+  goliaff groups          - Manage only groups
   goliaff users           - Manage only users
+  goliaff extra           - Manage only extra packages
   goliaff stow            - Manage only stow configurations
   goliaff uninstall       - Disable stow and services
   goliaff remove          - Full removal (stow, files, packages, services)
@@ -1149,9 +1406,19 @@ def main():
             configurator.manage_system()
             if dry_run:
                 configurator._show_dry_run_summary()
+    elif args[0] == 'groups':
+        if configurator.load_config():
+            configurator.manage_groups()
+            if dry_run:
+                configurator._show_dry_run_summary()
     elif args[0] == 'users':
         if configurator.load_config():
             configurator.manage_users()
+            if dry_run:
+                configurator._show_dry_run_summary()
+    elif args[0] == 'extra':
+        if configurator.load_config():
+            configurator.manage_extra_packages()
             if dry_run:
                 configurator._show_dry_run_summary()
     elif args[0] == 'stow':
