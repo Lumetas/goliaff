@@ -1,0 +1,48 @@
+{
+	"pkgs": {
+		"install": "sudo apk add %pkg%",
+		"remove": "sudo apk del %pkg%",
+		"check": "apk info -e %pkg% 2>/dev/null | grep -q '%pkg%' && echo 1"
+	},
+	"services": {
+		"system": {
+			"start": "sudo rc-service %service% start",
+			"stop": "sudo rc-service %service% stop",
+			"enable": "sudo rc-update add %service%",
+			"disable": "sudo rc-update del %service%",
+			"enabled": "rc-update show | grep -q '%service%' && echo 1",
+			"started": "rc-service %service% status 2>/dev/null | grep -q 'started' && echo 1"
+		}
+	},
+	"system": {
+		"hostname": {
+			"set": "sudo hostname %value% && echo '%value%' > /etc/hostname",
+			"get": "hostname"
+		},
+		"timezone": {
+			"set": "sudo setup-timezone -z %value%",
+			"get": "cat /etc/timezone 2>/dev/null || echo 'UTC'"
+		}
+	},
+	"users": {
+		"exists": "id %user% > /dev/null 2>&1 && echo 1",
+		"create": {
+			"command": "sudo adduser -s %shell% -D %user%",
+			"with_groups": "sudo adduser %user% %groups%"
+		},
+		"delete": {
+			"command": "sudo deluser --remove-home %user%",
+			"keep_home": "sudo deluser %user%"
+		},
+		"modify": {
+			"shell": "sudo chsh -s %shell% %user%",
+			"lock": "sudo passwd -l %user%",
+			"unlock": "sudo passwd -u %user%"
+		},
+		"groups": {
+			"add": "sudo addgroup %user% %group%",
+			"check": "groups %user% | grep -q '\\b%group%\\b' && echo 1"
+		}
+	}
+}
+

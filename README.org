@@ -1,0 +1,477 @@
+#+TITLE: Goliaff: Declarative Linux System Configuration Manager
+#+AUTHOR: System Administrator
+#+DATE: 2024
+#+OPTIONS: toc:nil num:nil
+
+* Overview
+  An idempotent, declarative system configuration tool for Linux that manages packages, services, users, and configurations across different distributions.
+
+* Philosophy
+  - **Declarative**: Describe the desired state, not the steps to get there
+  - **Idempotent**: Safe to run multiple times
+  - **Distribution-agnostic**: Works across different Linux distributions
+  - **Modular**: Manage specific components independently
+  - **Safe**: Dry-run mode shows what will change before execution
+
+* Installation
+  #+BEGIN_SRC bash
+  # Clone the repository
+  git clone https://github.com/yourusername/goliaff.git
+  cd goliaff
+  
+  # Make executable
+  chmod +x goliaff
+  
+  # Create configuration
+  cp config.example.json config.json
+  # Edit config.json for your needs
+  #+END_SRC
+
+* Quick Start
+  #+BEGIN_SRC bash
+  # Basic usage
+  goliaff
+  
+  # Dry-run mode (preview changes)
+  goliaff --dry-run
+  
+  # Manage only packages
+  goliaff packages
+  
+  # Full uninstall
+  goliaff remove
+  #+END_SRC
+
+* Configuration Format
+  ** Basic Structure
+     #+BEGIN_SRC json
+     {
+       "currentDistro": "debian",
+       "distros": {
+         "debian": { ... },
+         "arch": { ... },
+         "fedora": { ... }
+       },
+       "dependencies": { ... },
+       "services": { ... },
+       "system": { ... },
+       "users": [ ... ],
+       "extraPkgs": { ... },
+       "WM": { ... },
+       "PKGS": { ... }
+     }
+     #+END_SRC
+
+  ** Distribution Configuration
+     #+BEGIN_SRC json
+     "distros": {
+       "debian": {
+         "pkgs": {
+           "check": "dpkg -l \"%pkg%\" | grep -q \"^ii\" && echo 1 || echo 0",
+           "install": "apt-get install -y \"%pkg%\"",
+           "remove": "apt-get remove -y \"%pkg%\""
+         },
+         "services": {
+           "system": {
+             "enabled": "systemctl is-enabled \"%service%\" 2>/dev/null | grep -q \"enabled\" && echo 1 || echo 0",
+             "started": "systemctl is-active \"%service%\" 2>/dev/null | grep -q \"active\" && echo 1 || echo 0",
+             "enable": "systemctl enable \"%service%\"",
+             "disable": "systemctl disable \"%service%\"",
+             "start": "systemctl start \"%service%\"",
+             "stop": "systemctl stop \"%service%\""
+           }
+         },
+         "users": {
+           "exists": "id \"%user%\" 2>/dev/null | grep -q \"uid=\" && echo 1 || echo 0",
+           "create": {
+             "command": "useradd -m -s \"%shell%\" \"%user%\""
+           },
+           "modify": {
+             "shell": "chsh -s \"%shell%\" \"%user%\"",
+             "home": "usermod -d \"%home%\" -m \"%user%\""
+           },
+           "groups": {
+             "check": "groups \"%user%\" 2>/dev/null | grep -q \"\\b%group%\\b\" && echo 1 || echo 0",
+             "add": "usermod -aG \"%group%\" \"%user%\""
+           }
+         },
+         "system": {
+           "timezone": {
+             "get": "timedatectl show --property=Timezone --value",
+             "set": "timedatectl set-timezone \"%value%\""
+           }
+         }
+       }
+     }
+     #+END_SRC
+
+* Example Configuration
+  ** Complete Example
+     #+BEGIN_SRC json :tangle config.example.json
+     {
+       "currentDistro": "debian",
+       
+       "distros": {
+         "debian": {
+           "pkgs": {
+             "check": "dpkg -l \"%pkg%\" | grep -q \"^ii\" && echo 1 || echo 0",
+             "install": "apt-get install -y \"%pkg%\"",
+             "remove": "apt-get remove -y \"%pkg%\""
+           },
+           "services": {
+             "system": {
+               "enabled": "systemctl is-enabled \"%service%\" 2>/dev/null | grep -q \"enabled\" && echo 1 || echo 0",
+               "started": "systemctl is-active \"%service%\" 2>/dev/null | grep -q \"active\" && echo 1 || echo 0",
+               "enable": "systemctl enable \"%service%\"",
+               "disable": "systemctl disable \"%service%\"",
+               "start": "systemctl start \"%service%\"",
+               "stop": "systemctl stop \"%service%\""
+             }
+           },
+           "users": {
+             "exists": "id \"%user%\" 2>/dev/null | grep -q \"uid=\" && echo 1 || echo 0",
+             "create": {
+               "command": "useradd -m -s \"%shell%\" \"%user%\"",
+               "keep_home": "userdel \"%user%\"",
+               "full": "userdel -r \"%user%\""
+             },
+             "modify": {
+               "shell": "chsh -s \"%shell%\" \"%user%\"",
+               "home": "usermod -d \"%home%\" -m \"%user%\"",
+               "lock": "passwd -l \"%user%\"",
+               "unlock": "passwd -u \"%user%\""
+             },
+             "groups": {
+               "check": "groups \"%user%\" 2>/dev/null | grep -q \"\\b%group%\\b\" && echo 1 || echo 0",
+               "add": "usermod -aG \"%group%\" \"%user%\"",
+               "remove": "gpasswd -d \"%user%\" \"%group%\"",
+               "list": "groups \"%user%\" 2>/dev/null | cut -d: -f2"
+             }
+           },
+           "system": {
+             "timezone": {
+               "get": "timedatectl show --property=Timezone --value",
+               "set": "timedatectl set-timezone \"%value%\""
+             },
+             "hostname": {
+               "get": "hostname",
+               "set": "hostnamectl set-hostname \"%value%\""
+             }
+           }
+         },
+         
+         "arch": {
+           "pkgs": {
+             "check": "pacman -Qs \"^%pkg%$\" | grep -q \"%pkg%\" && echo 1 || echo 0",
+             "install": "pacman -S --noconfirm \"%pkg%\"",
+             "remove": "pacman -R --noconfirm \"%pkg%\""
+           }
+         },
+         
+         "fedora": {
+           "pkgs": {
+             "check": "rpm -q \"%pkg%\" >/dev/null 2>&1 && echo 1 || echo 0",
+             "install": "dnf install -y \"%pkg%\"",
+             "remove": "dnf remove -y \"%pkg%\""
+           }
+         }
+       },
+       
+       "dependencies": {
+         "vim": {
+           "debian": {
+             "name": "vim",
+             "installed": true
+           },
+           "arch": {
+             "name": "vim",
+             "installed": true
+           },
+           "fedora": {
+             "name": "vim-enhanced",
+             "installed": true
+           }
+         },
+         
+         "docker": {
+           "debian": {
+             "name": "docker.io",
+             "installed": false
+           }
+         },
+         
+         "zsh": {
+           "default": {
+             "name": "zsh",
+             "installed": true
+           }
+         }
+       },
+       
+       "services": {
+         "ssh": {
+           "debian": {
+             "name": "ssh",
+             "enable": true,
+             "start": true
+           }
+         },
+         
+         "docker": {
+           "debian": {
+             "name": "docker",
+             "enable": true,
+             "start": true
+           }
+         },
+         
+         "fail2ban": {
+           "debian": {
+             "name": "fail2ban",
+             "enable": true,
+             "start": false
+           }
+         }
+       },
+       
+       "system": {
+         "timezone": "Europe/Moscow",
+         "hostname": "my-workstation"
+       },
+       
+       "users": [
+         {
+           "name": "developer",
+           "enabled": true,
+           "shell": "/bin/zsh",
+           "groups": ["sudo", "docker", "developers"],
+           "lock": false
+         },
+         {
+           "name": "testuser",
+           "enabled": false,
+           "keep_home": true
+         }
+       ],
+       
+       "extraPkgs": {
+         "~/projects/my-configs": "https://github.com/user/my-configs.git",
+         "/opt/custom-tools": "https://gitlab.com/team/tools.git"
+       },
+       
+       "WM": {
+         "i3": {
+           "active": true,
+           "path": "~/.config"
+         },
+         "awesome": {
+           "active": false
+         }
+       },
+       
+       "PKGS": {
+         "nvim": {
+           "active": true,
+           "build": "make install"
+         },
+         "tmux": {
+           "active": true
+         }
+       }
+     }
+     #+END_SRC
+
+* Advanced Features
+  ** Include Files
+     Use @include: directive to include external configuration files:
+     #+BEGIN_SRC json
+     {
+       "dependencies": "@include:deps.json",
+       "services": "@include:services.json"
+     }
+     #+END_SRC
+  
+  ** Stow Integration
+     Manage dotfiles with GNU Stow:
+     #+BEGIN_SRC json
+     "PKGS": {
+       "nvim": {
+         "active": true,
+         "path": "~/.config",
+         "build": "make install"
+       }
+     }
+     #+END_SRC
+  
+  ** User Service Management
+     Configure user-level systemd services:
+     #+BEGIN_SRC json
+     "services": {
+       "my-user-service": {
+         "debian": {
+           "name": "my-service",
+           "enable": true,
+           "start": true,
+           "user": true
+         }
+       }
+     }
+     #+END_SRC
+
+* Usage Examples
+  ** Scenario 1: New Workstation Setup
+     #+BEGIN_SRC bash
+     # Configure everything
+     goliaff
+     
+     # Check what will happen first
+     goliaff --dry-run
+     #+END_SRC
+  
+  ** Scenario 2: Service Management
+     #+BEGIN_SRC bash
+     # Enable/disable services only
+     goliaff services
+     
+     # Dry-run for services
+     goliaff services --dry-run
+     #+END_SRC
+  
+  ** Scenario 3: User Management
+     #+BEGIN_SRC bash
+     # Create/update users
+     goliaff users
+     #+END_SRC
+  
+  ** Scenario 4: Package Management
+     #+BEGIN_SRC bash
+     # Install/remove packages
+     goliaff packages
+     #+END_SRC
+  
+  ** Scenario 5: System Settings
+     #+BEGIN_SRC bash
+     # Configure timezone, hostname, etc.
+     goliaff system
+     #+END_SRC
+  
+  ** Scenario 6: Dotfiles Management
+     #+BEGIN_SRC bash
+     # Manage Stow configurations
+     goliaff stow
+     #+END_SRC
+  
+  ** Scenario 7: Uninstallation
+     #+BEGIN_SRC bash
+     # Disable configurations
+     goliaff uninstall
+     
+     # Complete removal
+     goliaff remove
+     #+END_SRC
+
+* Command Reference
+  | Command             | Description                          | Dry-run Support |
+  |---------------------+--------------------------------------+-----------------|
+  | goliaff        | Full configuration                   | Yes             |
+  | goliaff packages | Package management only            | Yes             |
+  | goliaff services | Service management only            | Yes             |
+  | goliaff system   | System settings only               | Yes             |
+  | goliaff users    | User management only               | Yes             |
+  | goliaff stow     | Stow configurations only           | Yes             |
+  | goliaff uninstall | Disable services and stow          | Yes             |
+  | goliaff remove   | Full removal (packages, files, etc.) | Yes           |
+  | --dry-run or -d     | Preview mode (no changes made)      | N/A             |
+  | help                | Show help message                   | No              |
+
+* Best Practices
+  1. **Always use dry-run first**: Preview changes before applying
+  2. **Version control your config**: Store config.json in Git
+  3. **Use include files**: Split large configurations
+  4. **Test on VM**: Test configurations in isolated environment
+  5. **Backup before major changes**: Especially for user management
+  6. **Document custom distributions**: Add new distro configs as needed
+
+* Troubleshooting
+  ** Common Issues
+  
+  *** "Invalid JSON or unable to read config.json"
+      #+BEGIN_SRC bash
+      # Validate JSON syntax
+      python3 -m json.tool config.json
+      
+      # Check file permissions
+      ls -la config.json
+      #+END_SRC
+  
+  *** "Distribution configuration not found"
+      #+BEGIN_SRC json
+      // Ensure currentDistro matches a key in distros
+      {
+        "currentDistro": "debian",
+        "distros": {
+          "debian": { ... }
+        }
+      }
+      #+END_SRC
+  
+  *** "Command not defined for distribution"
+      #+BEGIN_SRC json
+      // Add missing command to distro config
+      "distros": {
+        "debian": {
+          "pkgs": {
+            "check": "...",
+            "install": "...",
+            "remove": "..."  // Make sure all required commands exist
+          }
+        }
+      }
+      #+END_SRC
+
+* Extending Goliaff
+  ** Adding New Distribution
+     #+BEGIN_SRC json
+     "distros": {
+       "ubuntu": {
+         "pkgs": {
+           "check": "dpkg -l \"%pkg%\" | grep -q \"^ii\" && echo 1 || echo 0",
+           "install": "apt-get install -y \"%pkg%\"",
+           "remove": "apt-get remove -y \"%pkg%\""
+         },
+         // Add other configuration sections...
+       }
+     }
+     #+END_SRC
+  
+  ** Custom Commands
+     Commands can be any shell command with placeholders:
+     - %pkg% - Package name
+     - %service% - Service name
+     - %user% - Username
+     - %group% - Group name
+     - %value% - Setting value
+     - %shell% - Shell path
+     - %home% - Home directory
+
+* FAQ
+  ** Q: Is this production-ready?
+     A: Use with caution. Always test in non-production environments first.
+  
+  ** Q: Can I use it with configuration management tools like Ansible?
+     A: Yes, Goliaff can complement other tools for specific use cases.
+  
+  ** Q: How does it handle conflicts with existing configurations?
+     A: It checks current state before making changes, minimizing conflicts.
+  
+  ** Q: Can I roll back changes?
+     A: Use the uninstall or remove commands, or restore from backups.
+
+* License
+  MIT License
+
+* Contributing
+  1. Fork the repository
+  2. Create a feature branch
+  3. Add tests for new functionality
+  4. Submit a pull request
