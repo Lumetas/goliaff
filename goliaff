@@ -572,7 +572,6 @@ class SystemConfigurator:
         success = self.run_commands(processed_commands)
         
         # Change back to original directory
-        os.chdir(original_cwd)
         
         if success:
             self.log_change(f"Build completed for {path}")
