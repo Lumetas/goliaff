@@ -556,58 +556,59 @@ class SystemConfigurator:
             self.log_change(f"Build completed for {path}")
         else:
             self.log_error(f"Build failed for {path}")
-    
+
     def _download_and_extract_file(self, config: Dict[str, Any], path: str):
-        """Downloads and extracts file"""
-        url = config.get('url')
-        if not url:
-            self.log_error(f"No URL specified for file download")
-            return
-        
-        # Create directory
-        dir_path = os.path.dirname(path)
-        if dir_path and not os.path.exists(dir_path):
-            try:
-                os.makedirs(dir_path, 0o755, exist_ok=True)
-            except OSError as e:
-                self.log_error(f"Failed to create directory {dir_path}: {e}")
-                return
-        
-        self.log_info(f"Downloading: {url}")
-        
-        if self.dry_run:
-            self.add_dry_run_op(Operation.DOWNLOAD, f"File: {url} → {path}")
-            if 'build' in config:
-                for cmd in config['build']:
-                    self.add_dry_run_op(Operation.BUILD, f"Build command", cmd)
-            return
-        
-        # Download file
+    """Downloads and extracts file"""
+    url = config.get('url')
+    if not url:
+        self.log_error(f"No URL specified for file download")
+        return
+    
+    # Create directory
+    dir_path = os.path.dirname(path)
+    if dir_path and not os.path.exists(dir_path):
         try:
-            with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.basename(url)) as tmp_file:
-                tmp_path = tmp_file.name
+            os.makedirs(dir_path, 0o755, exist_ok=True)
+        except OSError as e:
+            self.log_error(f"Failed to create directory {dir_path}: {e}")
+            return
+    
+    self.log_info(f"Downloading: {url}")
+    
+    if self.dry_run:
+        self.add_dry_run_op(Operation.DOWNLOAD, f"File: {url} → {path}")
+        if 'build' in config:
+            for cmd in config['build']:
+                self.add_dry_run_op(Operation.BUILD, f"Build command", cmd)
+        return
+    
+    # Download file
+    try:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.basename(url)) as tmp_file:
+            tmp_path = tmp_file.name
+            
+            with urllib.request.urlopen(url) as response:
+                tmp_file.write(response.read())
+            
+            self.log_change(f"Downloaded: {url}")
+            
+            # ПРОБЛЕМА БЫЛА ЗДЕСЬ:
+            # НЕ распаковываем автоматически по расширению!
+            # Просто перемещаем файл в целевое место
+            
+            # Используем shutil.move (работает между файловыми системами)
+            import shutil
+            shutil.move(tmp_path, path)
+            self.log_change(f"Moved to: {path}")
+            
+            # Run build commands if any
+            if 'build' in config:
+                self._run_build_commands(config['build'], path)
                 
-                with urllib.request.urlopen(url) as response:
-                    tmp_file.write(response.read())
-                
-                self.log_change(f"Downloaded: {url}")
-                
-                # Extract if it's a tar file
-                if url.endswith('.tar.gz') or url.endswith('.tgz'):
-                    self._extract_tar_file(tmp_path, path, config)
-                else:
-                    # Move file to destination
-                    os.rename(tmp_path, path)
-                    self.log_change(f"Moved to: {path}")
-                
-                # Run build commands if any
-                if 'build' in config:
-                    self._run_build_commands(config['build'], path)
-                
-        except Exception as e:
-            self.log_error(f"Failed to download {url}: {e}")
-            if os.path.exists(tmp_path):
-                os.unlink(tmp_path)
+    except Exception as e:
+        self.log_error(f"Failed to download {url}: {e}")
+        if os.path.exists(tmp_path):
+            os.unlink(tmp_path)
     
     def _extract_tar_file(self, tar_path: str, dest_path: str, config: Dict[str, Any]):
         """Extracts tar file"""
