@@ -16,15 +16,9 @@
 * Installation
   #+BEGIN_SRC bash
   # Clone the repository
-  git clone https://github.com/yourusername/goliaff.git
-  cd goliaff
-  
-  # Make executable
-  chmod +x goliaff
-  
-  # Create configuration
-  cp config.example.json config.json
-  # Edit config.json for your needs
+  sudo git clone https://github.com/lumetas/goliaff.git /etc/goliaff
+  sudo chmod +x /etc/goliaff
+  sudo cp /etc/goliaff /bin/goliaff
   #+END_SRC
 
 * Quick Start
