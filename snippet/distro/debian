@@ -3,7 +3,7 @@
 		"install": "sudo apt-get install %pkg% -y",
 		"remove": "sudo apt-get remove %pkg% -y",
 		"purge": "sudo apt-get purge %pkg% -y",
-		"check": "dpkg -l %pkg% 2>/dev/null | grep -q '^ii' && echo 1"
+		"check": "dpkg -l %pkg% 2>/dev/null | grep -q '^ii' && echo 1 || echo 0"
 	},
 	"services": {
 		"system": {
@@ -11,16 +11,16 @@
 			"stop": "sudo systemctl stop %service%",
 			"enable": "sudo systemctl enable %service%",
 			"disable": "sudo systemctl disable %service%",
-			"enabled": "systemctl is-enabled %service% 2>/dev/null | grep -q 'enabled' && echo 1",
-			"started": "systemctl is-active %service% 2>/dev/null | grep -q 'active' && echo 1"
+			"enabled": "systemctl is-enabled %service% 2>/dev/null | grep -q 'enabled' && echo 1 || echo 0",
+			"started": "systemctl is-active %service% 2>/dev/null | grep -q 'active' && echo 1 || echo 0"
 		},
 		"user": {
 			"start": "systemctl --user start %service%",
 			"stop": "systemctl --user stop %service%",
 			"enable": "systemctl --user enable %service%",
 			"disable": "systemctl --user disable %service%",
-			"enabled": "systemctl --user is-enabled %service% 2>/dev/null | grep -q 'enabled' && echo 1",
-			"started": "systemctl --user is-active %service% 2>/dev/null | grep -q 'active' && echo 1"
+			"enabled": "systemctl --user is-enabled %service% 2>/dev/null | grep -q 'enabled' && echo 1 || echo 0",
+			"started": "systemctl --user is-active %service% 2>/dev/null | grep -q 'active' && echo 1 || echo 0"
 		}
 	},
 	"system": {
@@ -33,16 +33,16 @@
 			"get": "timedatectl show --property=Timezone --value"
 		},
 		"locale": {
-			"set": "sudo update-locale %value%",
-			"get": "localectl status | grep 'System Locale' | cut -d= -f2 | tr -d ' '"
+			"set": "sudo sed -i 's/^LANG=.*/LANG=%value%/' /etc/default/locale && sudo sed -i 's/^LC_ALL=.*/LC_ALL=%value%/' /etc/default/locale && sudo update-locale LANG=%value% LC_ALL=%value% && sudo localectl set-locale LANG=%value%",
+			"get": "grep '^LANG=' /etc/default/locale 2>/dev/null | cut -d= -f2 || echo 'en_US.UTF-8'"
 		},
 		"keymap": {
-			"set": "sudo localectl set-keymap %value%",
-			"get": "localectl status | grep 'Keymap' | cut -d: -f2 | tr -d ' '"
+			"set": "sudo localectl set-keymap %value% && sudo sed -i 's/XKBLAYOUT=\".*\"/XKBLAYOUT=\"%value%\"/' /etc/default/keyboard && sudo dpkg-reconfigure --frontend=noninteractive keyboard-configuration 2>/dev/null",
+			"get": "grep 'XKBLAYOUT=' /etc/default/keyboard 2>/dev/null | cut -d= -f2 | tr -d '\"' || localectl status 2>/dev/null | grep 'Keymap' | cut -d: -f2 | tr -d ' ' || echo 'us'"
 		}
 	},
 	"users": {
-		"exists": "id %user% > /dev/null 2>&1 && echo 1",
+		"exists": "id %user% > /dev/null 2>&1 && echo 1 || echo 0",
 		"create": {
 			"command": "sudo adduser --disabled-password --gecos '' --shell %shell% %user%",
 			"with_groups": "sudo usermod -aG %groups% %user%"
@@ -60,20 +60,23 @@
 		"groups": {
 			"add": "sudo adduser %user% %group%",
 			"remove": "sudo deluser %user% %group%",
-			"check": "groups %user% | grep -q '\\b%group%\\b' && echo 1",
-			"list": "groups %user% | cut -d: -f2"
+			"check": "groups %user% 2>/dev/null | grep -q '\\b%group%\\b' && echo 1 || echo 0",
+			"list": "groups %user% 2>/dev/null | cut -d: -f2"
 		}
 	},
 	"groups": {
-		"exists": "getent group %group% > /dev/null 2>&1 && echo 1",
+		"exists": "getent group %group% > /dev/null 2>&1 && echo 1 || echo 0",
 		"create": "sudo groupadd %group%",
 		"delete": "sudo groupdel %group%",
 		"list": "getent group",
 		"members": {
-			"list": "getent group %group% | cut -d: -f4",
+			"list": "getent group %group% 2>/dev/null | cut -d: -f4",
 			"add": "sudo adduser %user% %group%",
 			"remove": "sudo deluser %user% %group%"
 		}
+	},
+	"locale_setup": {
+		"check_locale_exists": "locale -a 2>/dev/null | grep -q '^%value%$' && echo 1 || echo 0",
+		"generate_locale": "sudo sed -i '/^# %value%/s/^# //' /etc/locale.gen && sudo locale-gen"
 	}
 }
-
