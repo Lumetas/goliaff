@@ -1,0 +1,56 @@
+#!/bin/env python3
+import sys
+import json
+import os
+
+try:
+    data = json.load(sys.stdin)
+except json.JSONDecodeError:
+    print("Error: Invalid JSON input")
+    sys.exit(1)
+
+def write_if_different(path, content):
+    """Пишет в файл только если содержимое отличается"""
+    try:
+        with open(path, 'r', encoding='utf-8') as f:
+            current = f.read()
+        if current == content:
+            return False
+    except FileNotFoundError:
+        pass  # Файла нет, нужно создать
+    
+    with open(path, 'w', encoding='utf-8') as f:
+        f.write(content)
+    return True
+
+if "d-conf" in data and "sshd" in data["d-conf"]:
+    print("configuring sshd")
+    configStr = ""
+    for key, value in data["d-conf"]["sshd"].items():
+        if value == True:
+            value = "yes"
+        elif value == False:
+            value = "no"
+        configStr += f"{key} {value}\n"
+    
+    changed = write_if_different("/etc/ssh/sshd_config", configStr)
+    if changed:
+        print("sshd_config updated")
+
+if "d-conf" in data and "ssh" in data["d-conf"]:
+    print("configuring ssh")
+    configStr = ""
+    for value in data["d-conf"]["ssh"]:
+        if len(value) == 0:
+            continue
+        if len(value) == 1:
+            value = value[0]
+            configStr += f"{value}\n"
+        elif len(value) == 2:
+            configStr += f"{value[0]} {value[1]}\n"
+        else:
+            configStr += " ".join(value) + "\n"
+    
+    changed = write_if_different("/etc/ssh/ssh_config", configStr)
+    if changed:
+        print("ssh_config updated")
