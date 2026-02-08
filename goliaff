@@ -1564,8 +1564,8 @@ def main():
         configurator.remove_all()
     elif args[0] == 'plugins':
         if configurator.load_config():
-            configurator.manage_pre_plugins()
-            configurator.manage_plugins()
+            configurator.init_plugins()
+            configurator.execute_all_plugins()
             if dry_run:
                 configurator._show_dry_run_summary()
     else:
