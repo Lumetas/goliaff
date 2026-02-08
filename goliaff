@@ -45,7 +45,7 @@ class DryRunOperation:
 class SystemConfigurator:
     """Main system configuration class"""
     
-    def __init__(self, config_path: str = 'config.json', dry_run: bool = False):
+    def __init__(self, config_path: str = 'goliaff.json', dry_run: bool = False):
         self.dry_run = dry_run
         self.dry_run_ops: List[DryRunOperation] = []
         self.config_path = config_path
@@ -1314,7 +1314,7 @@ class SystemConfigurator:
         self.log_info(f"Managing plugins ({len(plugins)} found)")
         
         # Преобразуем конфиг в JSON строку
-        config_json = json.dumps(self.config, ensure_ascii=False)
+        goliaff.json = json.dumps(self.config, ensure_ascii=False)
         
         for i, plugin_cmd in enumerate(plugins, 1):
             if not isinstance(plugin_cmd, str) or not plugin_cmd.strip():
@@ -1344,7 +1344,7 @@ class SystemConfigurator:
                 )
                 
                 # Передаем конфиг в stdin и получаем результат
-                stdout, stderr = process.communicate(input=config_json)
+                stdout, stderr = process.communicate(input=goliaff.json)
                 returncode = process.returncode
                 
                 # Логируем вывод
@@ -1504,7 +1504,7 @@ def show_help():
 Options:
   --dry-run, -d    Preview mode (don't execute commands)
 
-Script expects config.json in current working directory.
+Script expects goliaff.json in current working directory.
 """
     print(help_text)
 

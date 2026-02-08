@@ -380,7 +380,7 @@
 
 * Best Practices
   1. **Always use dry-run first**: Preview changes before applying
-  2. **Version control your config**: Store config.json in Git
+  2. **Version control your config**: Store goliaff.json in Git
   3. **Use include files**: Split large configurations
   4. **Test on VM**: Test configurations in isolated environment
   5. **Backup before major changes**: Especially for user management
@@ -389,13 +389,13 @@
 * Troubleshooting
   ** Common Issues
   
-  *** "Invalid JSON or unable to read config.json"
+  *** "Invalid JSON or unable to read goliaff.json"
       #+BEGIN_SRC bash
       # Validate JSON syntax
-      python3 -m json.tool config.json
+      python3 -m json.tool goliaff.json
       
       # Check file permissions
-      ls -la config.json
+      ls -la goliaff.json
       #+END_SRC
   
   *** "Distribution configuration not found"
