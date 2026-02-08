@@ -478,6 +478,8 @@ stages can be:
 - pre-stow
 - post-build
 
+A plugin is any executable program. Goliaff passes her the config to stdin at startup.
+
 * FAQ
   ** Q: Is this production-ready?
      A: Use with caution. Always test in non-production environments first.

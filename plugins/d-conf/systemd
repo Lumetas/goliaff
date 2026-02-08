@@ -1,0 +1,240 @@
+#!/usr/bin/env python3
+"""
+Systemd unit generator for Goliaff
+Creates systemd service/timer/socket/etc files from declarative config
+"""
+
+import sys
+import json
+import os
+import subprocess
+from pathlib import Path
+
+def write_if_different(path, content):
+    """Write content to file only if it differs from current content"""
+    path = Path(path)
+    
+    try:
+        current = path.read_text(encoding='utf-8')
+        if current == content:
+            return False
+    except FileNotFoundError:
+        pass
+    
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content, encoding='utf-8')
+    return True
+
+def validate_systemd_unit(path):
+    """Validate systemd unit with systemd-analyze"""
+    try:
+        result = subprocess.run(
+            ['systemd-analyze', 'verify', str(path)],
+            capture_output=True,
+            text=True,
+            check=False
+        )
+        if result.returncode != 0:
+            print(f"Warning: {path.name} validation failed: {result.stderr.strip()}")
+            return False
+        return True
+    except FileNotFoundError:
+        # systemd-analyze not available, skip validation
+        return True
+    except Exception as e:
+        print(f"Warning: Failed to validate {path.name}: {e}")
+        return True
+
+def generate_systemd_ini(data):
+    """Generate INI-style systemd unit content from structured data"""
+    lines = []
+    
+    for section, options in data.items():
+        if section.startswith('_'):
+            continue  # Skip metadata keys
+        
+        lines.append(f"[{section}]")
+        
+        if isinstance(options, dict):
+            for key, value in options.items():
+                if isinstance(value, list):
+                    for item in value:
+                        lines.append(f"{key}={item}")
+                elif isinstance(value, bool):
+                    lines.append(f"{key}={str(value).lower()}")
+                else:
+                    lines.append(f"{key}={value}")
+        elif options:  # Non-empty string for raw content
+            lines.append(options)
+        
+        lines.append("")  # Empty line between sections
+    
+    return "\n".join(lines).strip() + "\n"
+
+def generate_from_sugar(config):
+    """Generate systemd unit from simplified sugar syntax"""
+    unit_type = config.get("type", "service").lower()
+    
+    # Start building the unit
+    unit_data = {}
+    
+    # Handle Unit section
+    if "description" in config:
+        unit_data["Unit"] = unit_data.get("Unit", {})
+        unit_data["Unit"]["Description"] = config["description"]
+    
+    if "after" in config:
+        unit_data["Unit"] = unit_data.get("Unit", {})
+        after = config["after"]
+        if isinstance(after, list):
+            unit_data["Unit"]["After"] = after
+        else:
+            unit_data["Unit"]["After"] = [after]
+    
+    # Handle Service section
+    if unit_type == "service":
+        unit_data["Service"] = {}
+        
+        if "command" in config:
+            unit_data["Service"]["ExecStart"] = config["command"]
+        
+        if "user" in config:
+            unit_data["Service"]["User"] = config["user"]
+        
+        if "working_dir" in config:
+            unit_data["Service"]["WorkingDirectory"] = config["working_dir"]
+        
+        if "environment" in config:
+            env = config["environment"]
+            if isinstance(env, dict):
+                env_vars = [f"{k}={v}" for k, v in env.items()]
+                unit_data["Service"]["Environment"] = env_vars
+        
+        if "restart" in config:
+            unit_data["Service"]["Restart"] = config["restart"]
+    
+    # Handle Timer section
+    elif unit_type == "timer":
+        unit_data["Timer"] = {}
+        
+        if "on_calendar" in config:
+            unit_data["Timer"]["OnCalendar"] = config["on_calendar"]
+        
+        if "on_unit_active" in config:
+            unit_data["Timer"]["OnUnitActiveSec"] = config["on_unit_active"]
+        
+        if "unit" in config:
+            unit_data["Timer"]["Unit"] = config["unit"]
+    
+    # Handle Socket section
+    elif unit_type == "socket":
+        unit_data["Socket"] = {}
+        
+        if "listen" in config:
+            listen = config["listen"]
+            if isinstance(listen, list):
+                for i, addr in enumerate(listen, 1):
+                    unit_data["Socket"][f"ListenStream"] = [addr]
+            else:
+                unit_data["Socket"]["ListenStream"] = [listen]
+    
+    # Handle Install section
+    if "wanted_by" in config:
+        unit_data["Install"] = {"WantedBy": config["wanted_by"]}
+    
+    elif "required_by" in config:
+        unit_data["Install"] = {"RequiredBy": config["required_by"]}
+    
+    # Merge with raw config if provided
+    if "raw" in config:
+        for section, options in config["raw"].items():
+            if section not in unit_data:
+                unit_data[section] = {}
+            
+            if isinstance(options, dict):
+                unit_data[section].update(options)
+            else:
+                unit_data[section] = options
+    
+    return unit_data
+
+def process_systemd_config(data):
+    """Main processing function"""
+    if "d-conf" not in data or "systemd" not in data["d-conf"]:
+        return
+    
+    systemd_config = data["d-conf"]["systemd"]
+    changes_made = False
+    
+    for unit_name, unit_config in systemd_config.items():
+        # Skip if not active (Goliaff principle: manage only what's declared)
+        if isinstance(unit_config, dict) and unit_config.get("active") is False:
+            print(f"Skipping {unit_name} (active: false)")
+            continue
+        
+        # Determine unit type from name or config
+        if not unit_name.endswith(('.service', '.timer', '.socket', '.mount', '.target', '.path')):
+            # No extension in name, check config or default to .service
+            if isinstance(unit_config, dict) and "type" in unit_config:
+                unit_file = f"{unit_name}.{unit_config['type']}"
+            else:
+                unit_file = f"{unit_name}.service"
+        else:
+            unit_file = unit_name
+        
+        # Generate unit content
+        if isinstance(unit_config, dict) and any(key in unit_config for key in ["type", "command", "description"]):
+            # Sugar syntax
+            unit_data = generate_from_sugar(unit_config)
+        elif isinstance(unit_config, dict):
+            # Raw INI-style config
+            unit_data = unit_config
+        elif isinstance(unit_config, str):
+            # Direct string content
+            unit_content = unit_config
+            unit_file_path = Path("/etc/systemd/system") / unit_file
+            if write_if_different(unit_file_path, unit_content):
+                print(f"Created/updated: {unit_file}")
+                changes_made = True
+                validate_systemd_unit(unit_file_path)
+            continue
+        else:
+            print(f"Error: Invalid config for {unit_name}")
+            continue
+        
+        # Generate INI content
+        unit_content = generate_systemd_ini(unit_data)
+        
+        # Write file
+        unit_file_path = Path("/etc/systemd/system") / unit_file
+        
+        if write_if_different(unit_file_path, unit_content):
+            print(f"Created/updated: {unit_file}")
+            changes_made = True
+            
+            # Validate the unit
+            if not validate_systemd_unit(unit_file_path):
+                print(f"Warning: {unit_file} has validation errors")
+        
+        # Note: State management (enable/start) is handled by Goliaff services section
+    
+    # Reload systemd if any changes were made
+    if changes_made:
+        print("Reloading systemd daemon...")
+        subprocess.run(["systemctl", "daemon-reload"], check=False)
+
+def main():
+    """Main entry point"""
+    try:
+        # Read JSON from stdin
+        data = json.load(sys.stdin)
+        process_systemd_config(data)
+    except json.JSONDecodeError as e:
+        print(f"Error: Invalid JSON input: {e}", file=sys.stderr)
+        sys.exit(1)
+    except Exception as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+
+if __name__ == "__main__":
+    main()
