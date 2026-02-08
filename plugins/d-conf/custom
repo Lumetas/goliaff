@@ -1,0 +1,30 @@
+#!/bin/env python3
+import sys
+import json
+import os
+
+data = json.load(sys.stdin)
+
+
+def write_if_different(path, content):
+    """Пишет в файл только если содержимое отличается"""
+    try:
+        with open(path, 'r', encoding='utf-8') as f:
+            current = f.read()
+        if current == content:
+            return False
+    except FileNotFoundError:
+        pass  # Файла нет, нужно создать
+    
+    with open(path, 'w', encoding='utf-8') as f:
+        f.write(content)
+    return True
+
+if "d-conf" in data and "custom" in data["d-conf"]:
+    for value in data["d-conf"]["custom"]:
+        if "file" in value and "content" in value:
+            print(f"Configuring custom configuration for {value['file']}")
+            strConf = "\n".join(value["content"])
+            changed = write_if_different(value["file"], strConf)
+            if changed:
+                print(f"Custom configuration for {value['file']} updated")

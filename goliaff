@@ -31,6 +31,7 @@ class Operation(Enum):
     BUILD = "Build",
     PRECOMMANDS = "Pre-commands",
     PLUGINS = "Plugins"
+    PREPLUGINS = "Pre-plugins"
 
 
 @dataclass
@@ -1295,18 +1296,20 @@ class SystemConfigurator:
         
         if returncode != 0:
             self.log_error(f"Failed to set {setting}: {stderr}")
-    
-    # ========== Main Execution Methods ==========
-    def manage_plugins(self):
+
+
+    def manage_plugins(self, stage):
         """Manages plugins - executes each plugin sequentially with config as stdin"""
         if 'plugins' not in self.config:
             self.log_info("Plugins not defined in config")
             return
-        
-        plugins = self.config.get('plugins', [])
+        plugins = []
+        stages = self.config.get('plugins', [])
+        if stage in stages:
+            plugins = stages[stage]
         if not plugins:
-            self.log_info("No plugins to execute")
             return
+
         
         self.log_info(f"Managing plugins ({len(plugins)} found)")
         
@@ -1323,7 +1326,7 @@ class SystemConfigurator:
             if self.dry_run:
                 self.add_dry_run_op(
                     Operation.PLUGINS,
-                    f"Plugin #{i}: {plugin_cmd}",
+                    f"Plugin {plugin_cmd} on stage {stage}",
                     # f"echo 'CONFIG JSON' | {plugin_cmd}"
                 )
                 continue
@@ -1360,6 +1363,20 @@ class SystemConfigurator:
                     
             except Exception as e:
                 self.log_error(f"Failed to execute plugin #{i}: {e}")
+
+    def init_plugins(self):
+        if isinstance(self.config.get('plugins'), list):
+            self.config['plugins'] = {"post-build": self.config['plugins']}
+
+
+
+    def execute_all_plugins(self):
+        stages = ["pre-packages", "pre-services", "pre-system", "pre-groups",
+                  "pre-users", "pre-extra", "pre-stow", "post-build"]
+        for stage in stages:
+            self.manage_plugins(stage)
+
+
     def configure_all(self):
         """Executes full system configuration"""
         if not self.load_config():
@@ -1370,16 +1387,26 @@ class SystemConfigurator:
             print("DRY RUN MODE")
             print("The following changes will be executed:")
             print("="*60 + "\n")
-        
+
+        self.init_plugins()
+
+        self.manage_plugins("pre-build")
         self._pre_comands()
+        self.manage_plugins("pre-packages")
         self.manage_packages()
+        self.manage_plugins("pre-services")
         self.manage_services()
+        self.manage_plugins("pre-system")
         self.manage_system()
-        self.manage_groups()  # Добавил управление группами
+        self.manage_plugins("pre-groups")
+        self.manage_groups()
+        self.manage_plugins("pre-users")
         self.manage_users()
+        self.manage_plugins("pre-extra")
         self.manage_extra_packages()
+        self.manage_plugins("pre-stow")
         self.manage_stow()
-        self.manage_plugins()
+        self.manage_plugins("post-build")
         
         if self.dry_run:
             self._show_dry_run_summary()
@@ -1537,6 +1564,7 @@ def main():
         configurator.remove_all()
     elif args[0] == 'plugins':
         if configurator.load_config():
+            configurator.manage_pre_plugins()
             configurator.manage_plugins()
             if dry_run:
                 configurator._show_dry_run_summary()

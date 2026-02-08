@@ -448,6 +448,36 @@
      - %shell% - Shell path
      - %home% - Home directory
 
+* Plugins
+#+BEGIN_SRC json
+
+	"plugins": [
+		"sudo ./plugins/d-conf/ssh",
+		"./plugins/d-conf/custom"
+	]
+#+END_SRC
+with stages:
+#+BEGIN_SRC json
+	"plugins": {
+		"pre-build": [
+			"sudo ./plugins/d-conf/ssh"
+		],
+		"post-build": [
+			"./plugins/d-conf/custom"
+		]
+	}
+#+END_SRC
+stages can be:
+- pre-build
+- pre-packages
+- pre-services
+- pre-system
+- pre-groups
+- pre-users
+- pre-extra
+- pre-stow
+- post-build
+
 * FAQ
   ** Q: Is this production-ready?
      A: Use with caution. Always test in non-production environments first.
