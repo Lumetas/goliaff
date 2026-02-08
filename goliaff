@@ -29,7 +29,8 @@ class Operation(Enum):
     DOWNLOAD = "Download"
     EXTRACT = "Extract"
     BUILD = "Build",
-    PRECOMMANDS = "Pre-commands"
+    PRECOMMANDS = "Pre-commands",
+    PLUGINS = "Plugins"
 
 
 @dataclass
@@ -1296,7 +1297,69 @@ class SystemConfigurator:
             self.log_error(f"Failed to set {setting}: {stderr}")
     
     # ========== Main Execution Methods ==========
-    
+    def manage_plugins(self):
+        """Manages plugins - executes each plugin sequentially with config as stdin"""
+        if 'plugins' not in self.config:
+            self.log_info("Plugins not defined in config")
+            return
+        
+        plugins = self.config.get('plugins', [])
+        if not plugins:
+            self.log_info("No plugins to execute")
+            return
+        
+        self.log_info(f"Managing plugins ({len(plugins)} found)")
+        
+        # Преобразуем конфиг в JSON строку
+        config_json = json.dumps(self.config, ensure_ascii=False)
+        
+        for i, plugin_cmd in enumerate(plugins, 1):
+            if not isinstance(plugin_cmd, str) or not plugin_cmd.strip():
+                self.log_warning(f"Plugin #{i} is not a valid command, skipping")
+                continue
+            
+            self.log_info(f"Executing plugin #{i}: {plugin_cmd}")
+            
+            if self.dry_run:
+                self.add_dry_run_op(
+                    Operation.PLUGINS,
+                    f"Plugin #{i}: {plugin_cmd}",
+                    # f"echo 'CONFIG JSON' | {plugin_cmd}"
+                )
+                continue
+            
+            try:
+                # Выполняем команду с передачей конфига через stdin
+                process = subprocess.Popen(
+                    plugin_cmd,
+                    shell=True,
+                    stdin=subprocess.PIPE,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    encoding='utf-8'
+                )
+                
+                # Передаем конфиг в stdin и получаем результат
+                stdout, stderr = process.communicate(input=config_json)
+                returncode = process.returncode
+                
+                # Логируем вывод
+                if stdout:
+                    for line in stdout.splitlines():
+                        self.log_info(f"Plugin: {line}")
+                
+                if stderr:
+                    for line in stderr.splitlines():
+                        self.log_warning(f"Plugin: {line}")
+                
+                if returncode != 0:
+                    self.log_error(f"Plugin  failed with exit code {returncode}")
+                else:
+                    self.log_change(f"Plugin completed successfully")
+                    
+            except Exception as e:
+                self.log_error(f"Failed to execute plugin #{i}: {e}")
     def configure_all(self):
         """Executes full system configuration"""
         if not self.load_config():
@@ -1316,6 +1379,7 @@ class SystemConfigurator:
         self.manage_users()
         self.manage_extra_packages()
         self.manage_stow()
+        self.manage_plugins()
         
         if self.dry_run:
             self._show_dry_run_summary()
@@ -1471,6 +1535,11 @@ def main():
         configurator.uninstall()
     elif args[0] == 'remove':
         configurator.remove_all()
+    elif args[0] == 'plugins':
+        if configurator.load_config():
+            configurator.manage_plugins()
+            if dry_run:
+                configurator._show_dry_run_summary()
     else:
         print(f"Unknown command: {args[0]}")
         show_help()
