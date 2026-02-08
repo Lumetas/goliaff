@@ -1314,7 +1314,7 @@ class SystemConfigurator:
         self.log_info(f"Managing plugins ({len(plugins)} found)")
         
         # Преобразуем конфиг в JSON строку
-        goliaff.json = json.dumps(self.config, ensure_ascii=False)
+        config_json = json.dumps(self.config, ensure_ascii=False)
         
         for i, plugin_cmd in enumerate(plugins, 1):
             if not isinstance(plugin_cmd, str) or not plugin_cmd.strip():
@@ -1344,7 +1344,7 @@ class SystemConfigurator:
                 )
                 
                 # Передаем конфиг в stdin и получаем результат
-                stdout, stderr = process.communicate(input=goliaff.json)
+                stdout, stderr = process.communicate(input=config_json)
                 returncode = process.returncode
                 
                 # Логируем вывод
